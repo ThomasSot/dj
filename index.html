@@ -19,6 +19,10 @@
                 <h1 class="text-2xl font-bold">YouTube Music Downloader</h1>
             </div>
             <div class="flex items-center space-x-4">
+                <button id="spotifyConfigBtn" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg transition-colors">
+                    <i class="fab fa-spotify mr-2"></i>
+                    Configurar Spotify
+                </button>
                 <button id="selectFolderBtn" class="bg-red-700 hover:bg-red-800 px-4 py-2 rounded-lg transition-colors">
                     <i class="fas fa-folder-open mr-2"></i>
                     Seleccionar Carpeta
@@ -38,10 +42,10 @@
                 Buscar Música
             </h2>
             <div class="flex gap-3">
-                <input 
-                    type="text" 
-                    id="searchInput" 
-                    placeholder="Busca por nombre o pega un link de Spotify..."
+                <input
+                    type="text"
+                    id="searchInput"
+                    placeholder="Busca canciones o pega un link de Spotify (canciones o playlists)..."
                     class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 >
                 <button 
@@ -92,6 +96,65 @@
                 </div>
                 <div id="downloadStatus" class="text-center text-gray-600">
                     Iniciando descarga...
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal de configuración de Spotify -->
+        <div id="spotifyConfigModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+            <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+                <div class="p-6">
+                    <h3 class="text-lg font-semibold mb-4 text-center">
+                        <i class="fab fa-spotify text-green-500 mr-2"></i>
+                        Configurar API de Spotify
+                    </h3>
+
+                    <div class="mb-4 p-4 bg-blue-50 rounded-lg">
+                        <p class="text-sm text-blue-800 mb-2">
+                            <strong>Para usar playlists de Spotify necesitas:</strong>
+                        </p>
+                        <ol class="text-xs text-blue-700 list-decimal list-inside space-y-1">
+                            <li>Ir a <a href="https://developer.spotify.com/dashboard" target="_blank" class="underline">developer.spotify.com/dashboard</a></li>
+                            <li>Crear una nueva aplicación</li>
+                            <li>Copiar tu Client ID y Client Secret</li>
+                        </ol>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Client ID:</label>
+                            <input
+                                type="text"
+                                id="spotifyClientId"
+                                placeholder="Tu Client ID de Spotify"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                            >
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Client Secret:</label>
+                            <input
+                                type="password"
+                                id="spotifyClientSecret"
+                                placeholder="Tu Client Secret de Spotify"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                            >
+                        </div>
+                    </div>
+
+                    <div class="flex space-x-3 mt-6">
+                        <button
+                            onclick="saveSpotifyCredentials()"
+                            class="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors">
+                            <i class="fas fa-save mr-2"></i>
+                            Guardar
+                        </button>
+                        <button
+                            onclick="closeSpotifyConfigModal()"
+                            class="flex-1 bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors">
+                            Cancelar
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
