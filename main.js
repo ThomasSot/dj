@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const ytdl = require('@distube/ytdl-core');
+const YTDlpWrap = require('yt-dlp-wrap').default;
 const ffmpeg = require('ffmpeg-static');
 const { spawn } = require('child_process');
 const youtubeSearch = require('youtube-search-api');
@@ -318,6 +319,127 @@ function formatBytes(bytes) {
 }
 
 /**
+ * Función de respaldo usando yt-dlp-wrap cuando ytdl-core falla
+ */
+async function downloadWithYtDlp(videoUrl, outputPath, event, progressId) {
+    return new Promise(async (resolve, reject) => {
+        try {
+            console.log('🔄 Intentando descarga con yt-dlp como respaldo...');
+
+            // Detectar la ruta de yt-dlp automáticamente
+            let ytDlpPath = 'yt-dlp'; // Por defecto, usar PATH
+
+            // Intentar rutas comunes
+            const commonPaths = [
+                '/opt/homebrew/bin/yt-dlp',  // Homebrew en macOS ARM
+                '/usr/local/bin/yt-dlp',     // Homebrew en macOS Intel
+                '/usr/bin/yt-dlp',           // Linux
+                'yt-dlp'                     // PATH
+            ];
+
+            for (const testPath of commonPaths) {
+                try {
+                    if (fs.existsSync(testPath) || testPath === 'yt-dlp') {
+                        ytDlpPath = testPath;
+                        break;
+                    }
+                } catch (e) {
+                    // Continuar con la siguiente ruta
+                }
+            }
+
+            console.log('Usando yt-dlp desde:', ytDlpPath);
+
+            // Crear instancia de yt-dlp
+            const ytDlp = new YTDlpWrap(ytDlpPath);
+
+            // Configurar opciones para yt-dlp
+            const options = [
+                '--extract-audio',
+                '--audio-format', 'mp3',
+                '--audio-quality', '192K',
+                '--output', outputPath.replace('.mp3', '.%(ext)s'),
+                '--no-playlist',
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                '--referer', 'https://www.youtube.com/',
+                videoUrl
+            ];
+
+            console.log('Ejecutando yt-dlp con opciones:', options.join(' '));
+
+            // Ejecutar yt-dlp
+            const ytDlpProcess = ytDlp.exec(options);
+
+            let hasError = false;
+
+            // Manejar salida del proceso
+            ytDlpProcess.stdout?.on('data', (data) => {
+                const output = data.toString();
+                console.log('yt-dlp stdout:', output);
+
+                // Intentar extraer progreso si es posible
+                if (event && output.includes('%')) {
+                    const progressMatch = output.match(/(\d+(?:\.\d+)?)%/);
+                    if (progressMatch) {
+                        const progress = parseFloat(progressMatch[1]);
+                        event.sender.send('download-progress', {
+                            videoId: progressId,
+                            progress: Math.round(progress),
+                            downloaded: 'Descargando...',
+                            total: 'Desconocido'
+                        });
+                    }
+                }
+            });
+
+            ytDlpProcess.stderr?.on('data', (data) => {
+                const error = data.toString();
+                console.log('yt-dlp stderr:', error);
+
+                // No marcar como error si es solo información
+                if (!error.toLowerCase().includes('error') && !error.toLowerCase().includes('failed')) {
+                    return;
+                }
+
+                hasError = true;
+            });
+
+            ytDlpProcess.on('close', (code) => {
+                if (code === 0 && !hasError) {
+                    console.log('✅ Descarga completada con yt-dlp');
+                    resolve({
+                        success: true,
+                        fileName: path.basename(outputPath),
+                        filePath: outputPath
+                    });
+                } else {
+                    console.error('❌ yt-dlp terminó con código:', code);
+                    resolve({
+                        success: false,
+                        error: `yt-dlp falló con código ${code}`
+                    });
+                }
+            });
+
+            ytDlpProcess.on('error', (error) => {
+                console.error('Error ejecutando yt-dlp:', error);
+                resolve({
+                    success: false,
+                    error: `Error ejecutando yt-dlp: ${error.message}`
+                });
+            });
+
+        } catch (error) {
+            console.error('Error en downloadWithYtDlp:', error);
+            resolve({
+                success: false,
+                error: error.message
+            });
+        }
+    });
+}
+
+/**
  * Función auxiliar para descargar una sola canción (usada por playlist y descarga individual)
  */
 async function downloadSingleTrack(videoData, downloadPath, event, progressId, trackInfo = null) {
@@ -339,34 +461,100 @@ async function downloadSingleTrack(videoData, downloadPath, event, progressId, t
             console.log('Descargando:', videoUrl);
             console.log('Guardando en:', outputPath);
 
-            // Obtener información del video
-            const info = await ytdl.getInfo(videoUrl);
-
-            // Filtrar formatos de audio
-            const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
-
-            if (audioFormats.length === 0) {
-                throw new Error('No se encontraron formatos de audio disponibles');
-            }
-
-            // Seleccionar el mejor formato de audio
-            const selectedFormat = audioFormats.reduce((best, format) => {
-                const currentBitrate = parseInt(format.audioBitrate) || 0;
-                const bestBitrate = parseInt(best.audioBitrate) || 0;
-                return currentBitrate > bestBitrate ? format : best;
-            });
-
-            console.log('Formato seleccionado:', selectedFormat.itag, selectedFormat.audioBitrate);
-
-            // Crear el stream de descarga
-            const stream = ytdl(videoUrl, {
-                format: selectedFormat,
+            // Configurar opciones mejoradas para ytdl-core
+            const ytdlOptions = {
                 requestOptions: {
                     headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1',
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache',
+                        'Referer': 'https://www.youtube.com/'
                     }
                 }
-            });
+            };
+
+            let info, audioFormats, selectedFormat, stream;
+
+            try {
+                // Obtener información del video con opciones mejoradas
+                info = await ytdl.getInfo(videoUrl, ytdlOptions);
+
+                // Filtrar formatos de audio
+                audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+
+                if (audioFormats.length === 0) {
+                    throw new Error('No se encontraron formatos de audio disponibles');
+                }
+
+                // Seleccionar el mejor formato de audio
+                selectedFormat = audioFormats.reduce((best, format) => {
+                    const currentBitrate = parseInt(format.audioBitrate) || 0;
+                    const bestBitrate = parseInt(best.audioBitrate) || 0;
+                    return currentBitrate > bestBitrate ? format : best;
+                });
+
+                console.log('Formato seleccionado:', selectedFormat.itag, selectedFormat.audioBitrate);
+
+                // Crear el stream de descarga con opciones mejoradas
+                stream = ytdl(videoUrl, {
+                    format: selectedFormat,
+                    requestOptions: ytdlOptions.requestOptions
+                });
+
+            } catch (ytdlError) {
+                console.error('Error con ytdl-core al obtener info:', ytdlError.message);
+                console.log('🔄 Intentando con yt-dlp como respaldo...');
+
+                try {
+                    const ytDlpResult = await downloadWithYtDlp(videoUrl, outputPath, event, progressId);
+
+                    if (ytDlpResult.success) {
+                        console.log('✅ Descarga exitosa con yt-dlp');
+
+                        // Obtener y escribir metadatos si tenemos información del track
+                        if (trackInfo && trackInfo.name && trackInfo.artists) {
+                            console.log(`🎵 Obteniendo metadatos para: ${trackInfo.artists} - ${trackInfo.name}`);
+
+                            try {
+                                const metadata = await getSpotifyTrackMetadata(trackInfo.name, trackInfo.artists);
+                                if (metadata) {
+                                    await writeID3Metadata(outputPath, metadata, trackInfo);
+                                    console.log(`✅ Metadatos agregados a: ${fileName}`);
+                                } else {
+                                    console.log(`⚠️ No se pudieron obtener metadatos para: ${trackInfo.artists} - ${trackInfo.name}`);
+                                }
+                            } catch (metadataError) {
+                                console.error('Error procesando metadatos:', metadataError);
+                            }
+                        }
+
+                        resolve(ytDlpResult);
+                        return;
+                    } else {
+                        resolve({
+                            success: false,
+                            error: `Error con ytdl-core y yt-dlp: ${ytdlError.message} | ${ytDlpResult.error}`
+                        });
+                        return;
+                    }
+                } catch (ytDlpError) {
+                    console.error('Error con yt-dlp:', ytDlpError);
+                    resolve({
+                        success: false,
+                        error: `Error obteniendo información del video: ${ytdlError.message}`
+                    });
+                    return;
+                }
+            }
 
             // Crear proceso FFmpeg para convertir a MP3
             const ffmpegProcess = spawn(ffmpeg, [
@@ -402,13 +590,49 @@ async function downloadSingleTrack(videoData, downloadPath, event, progressId, t
             }
 
             // Manejar errores del stream
-            stream.on('error', (error) => {
+            stream.on('error', async (error) => {
                 console.error('Error en stream de descarga:', error);
                 ffmpegProcess.kill();
-                resolve({
-                    success: false,
-                    error: `Error descargando video: ${error.message}`
-                });
+
+                // Intentar con yt-dlp como respaldo
+                console.log('🔄 ytdl-core falló, intentando con yt-dlp...');
+                try {
+                    const ytDlpResult = await downloadWithYtDlp(videoUrl, outputPath, event, progressId);
+
+                    if (ytDlpResult.success) {
+                        console.log('✅ Descarga exitosa con yt-dlp');
+
+                        // Obtener y escribir metadatos si tenemos información del track
+                        if (trackInfo && trackInfo.name && trackInfo.artists) {
+                            console.log(`🎵 Obteniendo metadatos para: ${trackInfo.artists} - ${trackInfo.name}`);
+
+                            try {
+                                const metadata = await getSpotifyTrackMetadata(trackInfo.name, trackInfo.artists);
+                                if (metadata) {
+                                    await writeID3Metadata(outputPath, metadata, trackInfo);
+                                    console.log(`✅ Metadatos agregados a: ${fileName}`);
+                                } else {
+                                    console.log(`⚠️ No se pudieron obtener metadatos para: ${trackInfo.artists} - ${trackInfo.name}`);
+                                }
+                            } catch (metadataError) {
+                                console.error('Error procesando metadatos:', metadataError);
+                            }
+                        }
+
+                        resolve(ytDlpResult);
+                    } else {
+                        resolve({
+                            success: false,
+                            error: `Error con ytdl-core y yt-dlp: ${error.message} | ${ytDlpResult.error}`
+                        });
+                    }
+                } catch (ytDlpError) {
+                    console.error('Error con yt-dlp:', ytDlpError);
+                    resolve({
+                        success: false,
+                        error: `Error descargando video: ${error.message}`
+                    });
+                }
             });
 
             // Manejar errores de FFmpeg
@@ -622,7 +846,7 @@ let spotifyApi = null;
 let spotifyCredentials = {
     clientId: 'a8d66560dbeb4985899ed9ba448116d6',
     clientSecret: '4acd81d1dbba44408695c698156812e8',
-    accessToken: null
+    accessToken: "BQAQmaH1wmd3WyQbAaexNw7E7uCvZ2CGpgKixFks81F9tzFzADnsrG8wmaQbwJMF27sM-L6sx6gI8oyaUkLqMky9N_xGcrwFJL_mtqZzPyIi-TuszSYuhWy6Ja8XBO2iNIFMXe2JhV2axWrkg_ksioKq-F5yEyTw-sVk4cXQo8WMzayIKjAOvYJs9mccTorKYAqtnHCIbhnkFPOFrIfAJ3zyuHSjM8DcrSlzVaJKAH9C-H8U0AvgpUJKRXhFYTohUx95G6v2iZXf9YaP2RQxYLx2tXouxITVWVxwrkJPt-c"
 };
 
 // Handler para configurar credenciales de Spotify

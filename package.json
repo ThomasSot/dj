@@ -27,6 +27,7 @@
     "musicbrainz-api": "^0.25.1",
     "node-id3": "^0.2.9",
     "spotify-web-api-node": "^5.0.2",
-    "youtube-search-api": "^2.0.0"
+    "youtube-search-api": "^2.0.0",
+    "yt-dlp-wrap": "^2.3.12"
   }
 }

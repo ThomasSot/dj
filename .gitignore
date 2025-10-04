@@ -1,1 +1,23 @@
 node_modules/
+
+# Archivos temporales de ytdl-core
+*-watch.html
+*-player-script.js
+
+# Archivos de descarga temporales
+*.tmp
+*.temp
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de configuración local
+.env
+.env.local
