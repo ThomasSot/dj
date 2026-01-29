@@ -353,7 +353,7 @@ async function downloadWithYtDlp(videoUrl, outputPath, event, progressId) {
             // Crear instancia de yt-dlp
             const ytDlp = new YTDlpWrap(ytDlpPath);
 
-            // Configurar opciones para yt-dlp
+            // Configurar opciones avanzadas para yt-dlp (estrategia actualizada 2026)
             const options = [
                 '--extract-audio',
                 '--audio-format', 'mp3',
@@ -362,6 +362,22 @@ async function downloadWithYtDlp(videoUrl, outputPath, event, progressId) {
                 '--no-playlist',
                 '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 '--referer', 'https://www.youtube.com/',
+                // Estrategia actualizada: usar solo web client para evitar PO token
+                '--extractor-args', 'youtube:player_client=web',
+                // Formato más flexible para evitar errores de formato no disponible
+                '--format', 'bestaudio/best[height<=720]',
+                '--no-check-certificates',
+                '--prefer-free-formats',
+                // Opciones de retry
+                '--retries', '5',
+                '--fragment-retries', '5',
+                '--retry-sleep', '2',
+                // Headers adicionales
+                '--add-header', 'Accept-Language:en-US,en;q=0.9',
+                '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                // Opciones adicionales para bypass
+                '--force-ipv4',
+                '--no-warnings',
                 videoUrl
             ];
 
